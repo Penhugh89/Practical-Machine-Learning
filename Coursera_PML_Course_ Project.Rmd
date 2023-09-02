@@ -1,0 +1,248 @@
+---
+title: "Coursera Practical Machine Learning Course Project"
+author: "P. Semple"
+date: "2023-08-31"
+output: html_document
+---
+
+PRACTICAL MACHINE LEARNING COURSE PROJECT
+
+# Executive Summary
+The following is a report on the above mentioned project.  This project is in partial fulfilment of the Practical Machine Learning Course.  Data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants was used. The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of the project is to predict the manner in which they did the exercise. (This is the "classe" variable in the training set). The following report was created to describe how the model was built, how cross validation was used, what is the expected out of sample error, and why the choices made were made. The model will also be used to predict 20 different test cases. 
+
+# Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+# Data
+The following data is used for the project:
+
+The training data for this project are available at: 
+    https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available at:
+    https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+
+# The following are the steps used to build the model.
+
+# STEP 1.  Data Preparation
+
+Configure the behavior of code chunks within the document so that the document includes both code and the results
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load the necessary libraries:
+
+```{r, echo = TRUE}
+library(lattice)
+library(caret)
+library(corrplot)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+```
+
+# STEP 2. Load and preprocess data: 
+
+# STEP 2(a) Download the data
+
+```{r, echo = TRUE}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+traincsv <- "./data/pml-training.csv"
+testcsv  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(traincsv)) {
+  download.file(trainUrl, destfile=traincsv)
+}
+if (!file.exists(testcsv)) {
+  download.file(testUrl, destfile=testcsv)
+}
+```  
+
+Read the training and test datasets
+After downloading the datasets read the two csv files and display the number of observations and variables.
+```{r, echo=TRUE}
+traincsv <- read.csv("./data/pml-training.csv")
+testcsv <- read.csv("./data/pml-testing.csv")
+dim(traincsv)
+dim(testcsv)
+```
+
+The training data set contains 19,622 observations and 160 variables.  The testing data set contains 20 observations and 160 variables. The "classe" variable in the training set is the outcome to predict. 
+
+
+
+# STEP 2(b) Clean the data
+
+Clean the data by handling missing values and outliers. Remove unnecessary variables; remove columns that contain missing values (NA).
+
+```{r, echo=TRUE}
+traincsv <- traincsv[,colMeans (is.na(traincsv)) == 0]
+testcsv <- testcsv[,colMeans (is.na(traincsv)) == 0]
+```
+
+Next, remove columns that do not contribute significantly to the accelerometer measurements.
+```{r, echo=TRUE}
+classe <- traincsv$classe
+
+train_Delete <- grepl("^X|timestamp|window", names(traincsv))
+traincsv <- traincsv[, !train_Delete]
+train_Clean <- traincsv[, sapply(traincsv, is.numeric)]
+train_Clean$classe <- classe
+test_Delete <- grepl("^X|timestamp|window", names(testcsv))
+testcsv <- testcsv[, !test_Delete]
+test_Clean <- testcsv[, sapply(testcsv, is.numeric)]
+dim(train_Clean)
+dim(test_Clean)
+```
+
+The cleaned training data set contains 19622 observations and 53 variables.  The testing data set contains 20 observations and 53 variables. The "classe" variable remains in the cleaned training set.
+
+
+
+# STEP 2(c) Split the data
+
+Split the cleaned training dataset into a pure training dataset (70%) and a validation dataset (30%). The validation dataset will be used to conduct cross validation in steps following.
+
+```{r, echo=TRUE}
+set.seed(1234)  # For reproducibility
+inTrain <- createDataPartition(train_Clean$classe, p=0.70, list=FALSE)
+traindata <- train_Clean[inTrain, ]
+testdata <- train_Clean[-inTrain, ]
+```
+
+# STEP 3. Choose a Model
+Since I am building a model to predict exercise manner based on accelerometer data, Random Forest is a good choice as it is a decision tree-based algorithm.
+
+```{r, echo=TRUE}
+model <- train(classe ~ ., data=traindata, method="rf")
+model
+```
+
+# STEP 4. Cross validation 
+
+Set up a cross-validation control object (controlRf) using 5-fold cross-validation. 
+
+```{r, echo=TRUE}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=traindata, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+
+# STEP 5. Evaluate model performance
+
+# STEP 5(a) Calculate confusion matrix
+Next, estimate the performance of the model on the validation data set by using the predict() function to make predictions using a random forest model (modelRf) on a test dataset (test_Data). The confusion matrix can then be calculated and displayed to evaluate the performance of the predictions.
+
+Since there seemed to be a mismatch between the levels of the actual test data’s outcome variable (testdata$classe) and the levels of the predicted values generated by the model, the confusion matrix was not being calculated. To fix the problem the following was done:
+
+(i).	Check Levels of Outcome Variable: by making sure that the levels of the outcome variable in the test data (testdata$classe) match the levels of the predicted values from the model. Compare the levels using the levels function below:
+```{r, echo=TRUE}
+predictRf <- predict(modelRf, testdata)
+actual_levels <- levels(testdata$classe)
+predicted_levels <- levels(predictRf)
+
+identical(actual_levels, predicted_levels)
+```
+
+(ii)	Factor Levels Alignment:
+Since the levels don’t match (as indicated by the FALSE results above), align them by using the factor function with the levels parameter to explicitly set the levels for both the actual test data and the predicted values to be the same. The code below was used to accomplish this alignment.
+
+```{r, echo=TRUE}
+actual_levels <- levels(testdata$classe)
+predicted_levels <- levels(predictRf)
+
+aligned_levels <- union(actual_levels, predicted_levels)
+
+testdata$classe <- factor(testdata$classe, levels = aligned_levels)
+predictRf <- factor(predictRf, levels = aligned_levels)
+```
+
+After aligning the factor levels, the confusion matrix was calculated.
+
+```{r, echo=TRUE}
+confusionMatrix(testdata$classe, predictRf)
+```
+
+
+# STEP 5(b) Out-of-sample error
+Calculate the out-of-sample error ("ose") rate using the confusion matrix from a random forest model. The code below is aimed at evaluating the performance of the random forest model by calculating the overall error rate (out-of-sample error). These metrics provide insights into how well the model is performing on unseen data.
+
+```{r, echo=TRUE}
+predictRf <- predict(modelRf, testdata)
+if (!exists("predictRf")) {
+  stop("predictRf not found")
+}
+ose <- 1 - as.numeric(confusionMatrix(testdata$classe, predictRf)$overall[1])
+ose
+```
+
+The estimated out-of-sample error is 0.65%.
+
+
+# STEP 5(c) Calculate accuracy
+```{r, echo=TRUE}
+accuracy <- postResample(predictRf, testdata$classe)
+accuracy
+
+```
+
+The model is estimated to be 99.35% accurate. 
+
+
+# STEP 6. Finalize the model
+
+The final model is: 
+
+        modelRf <- train(classe ~ ., data=traindata, method="rf", trControl=controlRf, ntree=250)
+
+This code trains a Random Forest model (modelRf) for a classification problem where you are predicting the target variable classe based on the input features (~ .). Using the RandomForest algorithm for classification, I am predicting the variable classe using all other variables (indicated by the dot .) in my traindata dataset.
+
+
+
+# STEP 7. Predict test cases
+Apply the model to the original test data set downloaded from the testURL, after removing the `problem_id` column
+
+```{r, echo=TRUE}
+modelRf <- train(classe ~ ., data=traindata, method="rf", trControl=controlRf, ntree=250)
+if (!exists("modelRf")) {
+  stop("modelRf not found")
+}
+result <- predict(modelRf, test_Clean[, -length(names(test_Clean))])
+result
+```  
+
+# Conclusion
+The steps above described how the model was built.  Cross validation was used to estimate the model's performance on unseen data.  This helped to assess the model's generalization ability and avoid overfitting.  The trained random forest model (modelRf) was evaluated on the validation dataset (testData), and the following performance metrics were obtained:
+
+- **Accuracy:** The model achieved an accuracy of 99.35%, indicating that it correctly predicted the class labels for the majority of the validation dataset.
+
+- **Out-of-Sample Error:** The estimated out-of-sample error is 0.61%, suggesting that the model's performance is robust even on data it hasn't seen before.
+
+These results demonstrate that the model is highly accurate and has a low out-of-sample error, indicating its effectiveness in classifying data.
+
+The model was used to predict 20 different test cases. The results are given above. 
+
+The appendices below shows the correlation matrix visualization and the decision tree visualization.
+
+
+# Appendices
+
+Appendix 1 - Correlation Matrix Visualization  
+```{r, echo=TRUE}
+library(corrplot)
+corrPlot <- cor(traindata[, -length(names(traindata))])
+corrplot(corrPlot, method="color")
+```
+
+Appendix 2 - Decision Tree Visualization
+```{r, echo=TRUE}
+tree_Model <- rpart(classe ~ ., data=traindata, method="class")
+prp(tree_Model) # fast plot
+```
+
